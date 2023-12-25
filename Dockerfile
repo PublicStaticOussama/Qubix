@@ -1,7 +1,7 @@
 
 FROM node:alpine
 
-WORKDIR /broker-queue
+WORKDIR /Qubix
 
 COPY package*.json ./
 
