@@ -1,10 +1,9 @@
 const WebSocket = require('ws');
 const crypto = require('crypto');
-const { log } = require('console');
 
 /**
  * @typedef {Object} Body
- * @property {'consume' | 'publish' | 'ack' | 'subscribe'} action - 
+ * @property {'consume' | 'publish' | 'ack' | 'subscribe' | 'purge'} action - 
  * @property {string} channel_name - The Y Coordinate
  * @property {string} message - The Y Coordinate
  * @property {"publisher" | "consumer"} actor - The Y Coordinate
@@ -28,7 +27,6 @@ function addUnAckMessage(channel_name, client_id, message) {
 }
 
 function enqueueChannel(channel_name, message) {
-    message = JSON.stringify(message)
     if (!(channel_name in channel_queues)) {
         channel_queues[channel_name] = []
     }
@@ -37,34 +35,38 @@ function enqueueChannel(channel_name, message) {
 
 function dequeueAndSend(channel_name, client_id) {
     const message = channel_queues[channel_name].shift();
-    /** @type {Body} */
-    const tail = {
-        action: "publish",
-        channel_name: channel_name,
-        message: JSON.stringify(message) // unecessary but just to make sure
-    }
-
-    clients[client_id].send(JSON.stringify(tail))
+    // /** @type {Body} */
+    // const tail = {
+    //     action: "publish",
+    //     channel_name: channel_name,
+    //     message: message // unecessary but just to make sure
+    // }
+    // clients[client_id].send(JSON.stringify(tail))
+    clients[client_id].send(message)
     return message
 }
 
 function sendToConsumer(channel_name, client_id, message) {
-    /** @type {Body} */
-    const body = {
-        action: "publish",
-        channel_name: channel_name,
-        message: JSON.stringify(message) // unecessary but just to make sure
-    }
+    // /** @type {Body} */
+    // const body = {
+    //     action: "publish",
+    //     channel_name: channel_name,
+    //     message: message // unecessary but just to make sure
+    // }
 
-    clients[client_id].send(JSON.stringify(body))
-    return JSON.stringify(message)
+    // clients[client_id].send(JSON.stringify(body))
+    clients[client_id].send(message)
+    return message
 }
 
 function ackMessage(channel_name, client_id) {
-    // console.log("BEFORE ACK:", unack_consumers[client_id].length);
-    const unack_message = unack_consumers[channel_name][client_id].shift() // TODO: unack_consumers should be channel specific
-    // console.log("AFTER ACK:", unack_consumers[client_id].length);
-    return unack_message
+    if (channel_name in unack_consumers && client_id in unack_consumers[channel_name]) {
+        // console.log("BEFORE ACK:", unack_consumers[client_id].length);
+        const unack_message = unack_consumers[channel_name][client_id].shift() // TODO: unack_consumers should be channel specific
+        // console.log("AFTER ACK:", unack_consumers[client_id].length);
+        return unack_message
+    }
+    return null
 }
 
 // Create a WebSocket server instance
@@ -73,7 +75,7 @@ const wss = new WebSocket.Server({ port: 8123 });
 // Listen for WebSocket connections
 wss.on('connection', (ws) => {
 //   console.log('Client connected');
-  const id = crypto.randomBytes(16).toString("hex");
+  const id = crypto.randomBytes(8).toString("hex");
 //   clients.set(ws, id);
   clients[id] = ws
 //   unack_consumers[id] = []
@@ -87,6 +89,17 @@ wss.on('connection', (ws) => {
 
     const channel_name = body.channel_name
     switch(body.action) {
+        case "heartbeat":
+            console.log("heartbeat from:", ws.id)
+            break;
+        case "purge":
+            if(channel_name in unack_consumers) {
+                for(const client_id in unack_consumers[channel_name]) {
+                    unack_consumers[channel_name][client_id] = []
+                }
+            }
+            channel_queues[channel_name] = []
+            break;
         case "subscribe":
             if (body.actor == 'consumer') {
                 if (!(channel_name in unack_consumers)) {
@@ -103,7 +116,7 @@ wss.on('connection', (ws) => {
                     }
                 }
             } else {
-                // console.log(`publishers ${ws.id} subscribed`)
+                console.log(`publishers ${ws.id} subscribed to`, unack_consumers)
                 publishers[ws.id] = true
             }
             break;
@@ -122,7 +135,7 @@ wss.on('connection', (ws) => {
         case "publish":
             // console.log('recieved a publish !!!!', body.message)
             // console.log("occupied consumers", channel_queues);
-            console.log("helloooooo ?????", unack_consumers);
+            // console.log("helloooooo ?????", unack_consumers);
             let free_consumer_id = null
             for (const id in unack_consumers[channel_name]) {
                 // console.log("helloooooo ?????", unack_consumers[channel_name][id].length, id != ws.id);
@@ -140,6 +153,7 @@ wss.on('connection', (ws) => {
             }
             break;
         case "consume":
+            console.log("conusme");
             if (!(channel_name in channel_queues)) {
                 channel_queues[channel_name] = []
             } else {
@@ -154,7 +168,7 @@ wss.on('connection', (ws) => {
 
   // Listen for WebSocket disconnections
   ws.on('close', () => {
-    console.log('Client disconnected');
+    console.log(`Client ${ws.id} disconnected !!!`);
     // clients.delete(ws);
   });
 });
