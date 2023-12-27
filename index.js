@@ -3,7 +3,7 @@ const crypto = require('crypto');
 
 /**
  * @typedef {Object} Body
- * @property {'consume' | 'publish' | 'ack' | 'subscribe' | 'purge'} action - 
+ * @property {'consume' | 'publish' | 'ack' | 'subscribe' | 'purge' | 'heartbeat'} action - 
  * @property {string} channel_name - The Y Coordinate
  * @property {string} message - The Y Coordinate
  * @property {"publisher" | "consumer"} actor - The Y Coordinate
@@ -35,35 +35,18 @@ function enqueueChannel(channel_name, message) {
 
 function dequeueAndSend(channel_name, client_id) {
     const message = channel_queues[channel_name].shift();
-    // /** @type {Body} */
-    // const tail = {
-    //     action: "publish",
-    //     channel_name: channel_name,
-    //     message: message // unecessary but just to make sure
-    // }
-    // clients[client_id].send(JSON.stringify(tail))
     clients[client_id].send(message)
     return message
 }
 
 function sendToConsumer(channel_name, client_id, message) {
-    // /** @type {Body} */
-    // const body = {
-    //     action: "publish",
-    //     channel_name: channel_name,
-    //     message: message // unecessary but just to make sure
-    // }
-
-    // clients[client_id].send(JSON.stringify(body))
     clients[client_id].send(message)
     return message
 }
 
 function ackMessage(channel_name, client_id) {
     if (channel_name in unack_consumers && client_id in unack_consumers[channel_name]) {
-        // console.log("BEFORE ACK:", unack_consumers[client_id].length);
-        const unack_message = unack_consumers[channel_name][client_id].shift() // TODO: unack_consumers should be channel specific
-        // console.log("AFTER ACK:", unack_consumers[client_id].length);
+        const unack_message = unack_consumers[channel_name][client_id].shift()
         return unack_message
     }
     return null
@@ -90,7 +73,7 @@ wss.on('connection', (ws) => {
     const channel_name = body.channel_name
     switch(body.action) {
         case "heartbeat":
-            console.log("heartbeat from:", ws.id)
+            console.log(`[${channel_name}] heartbeat from:`, ws.id, "| number of messages:", (channel_queues[channel_name]?.length || 0))
             break;
         case "purge":
             if(channel_name in unack_consumers) {
@@ -121,7 +104,6 @@ wss.on('connection', (ws) => {
             }
             break;
         case "ack":
-            // console.log("ack id:", ws.id);
             const old_message = ackMessage(channel_name, ws.id)
             if (channel_queues[channel_name].length) {
                 if((!(ws.id in unack_consumers[channel_name]) || unack_consumers[channel_name][ws.id].length == 0) && channel_queues[channel_name].length) {
@@ -129,22 +111,14 @@ wss.on('connection', (ws) => {
                     addUnAckMessage(channel_name, ws.id, message)
                 }
             }
-            // console.log("=> after ack: unack:", unack_consumers[channel_name][ws.id].length, "channel queue", channel_queues[channel_name].length);
-
             break;
         case "publish":
-            // console.log('recieved a publish !!!!', body.message)
-            // console.log("occupied consumers", channel_queues);
-            // console.log("helloooooo ?????", unack_consumers);
             let free_consumer_id = null
             for (const id in unack_consumers[channel_name]) {
-                // console.log("helloooooo ?????", unack_consumers[channel_name][id].length, id != ws.id);
                 if ((!unack_consumers[channel_name][id] || !unack_consumers[channel_name][id].length) && id != ws.id && !(id in publishers)) {
                     free_consumer_id = id
                 }
             }
-            // console.log('publisher id:', ws.id)
-            // console.log('free consumer ???', free_consumer_id)
             if (free_consumer_id) {
                 const message = sendToConsumer(channel_name, free_consumer_id, body.message)
                 addUnAckMessage(channel_name, free_consumer_id, message)
@@ -169,7 +143,15 @@ wss.on('connection', (ws) => {
   // Listen for WebSocket disconnections
   ws.on('close', () => {
     console.log(`Client ${ws.id} disconnected !!!`);
-    // clients.delete(ws);
+    delete clients[ws.id]
+    delete publishers[ws.id]
+    for (const channel in unack_consumers) {
+        if (unack_consumers[channel][ws.id] && unack_consumers[channel][ws.id].length) {
+            const recovered_msgs = unack_consumers[channel][ws.id]
+            channel_queues[channel].push(...recovered_msgs)
+            delete unack_consumers[channel][ws.id]
+        }
+    }
   });
 });
 
