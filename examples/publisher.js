@@ -19,6 +19,7 @@ button.onclick = function() {
     const message = {
         action: 'publish',
         channel_name: "training",
+        type: "string",
         message: "Hello, World!"
     }
     ws.send(JSON.stringify(message));
