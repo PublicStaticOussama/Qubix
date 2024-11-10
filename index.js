@@ -119,11 +119,12 @@ wss.on('connection', (ws) => {
                     free_consumer_id = id
                 }
             }
+            const publisher_packet = JSON.stringify({type: body.type, message: body.message})
             if (free_consumer_id) {
-                const message = sendToConsumer(channel_name, free_consumer_id, body.message)
+                const message = sendToConsumer(channel_name, free_consumer_id, publisher_packet)
                 addUnAckMessage(channel_name, free_consumer_id, message)
             } else {
-                enqueueChannel(channel_name, body.message)
+                enqueueChannel(channel_name, publisher_packet)
             }
             break;
         case "consume":
